@@ -7,16 +7,20 @@
 
 package frc.robot;
 
-import com.ctre.phoenix.motorcontrol.ControlMode;
-import com.ctre.phoenix.motorcontrol.FeedbackDevice;
-import com.ctre.phoenix.motorcontrol.TalonFXFeedbackDevice;
-import com.ctre.phoenix.motorcontrol.can.TalonFX;
-import com.ctre.phoenix.motorcontrol.can.TalonSRX;
+import java.util.Map;
 
+import com.ctre.phoenix.motorcontrol.ControlMode;
+import com.ctre.phoenix.motorcontrol.can.TalonSRX;
+import com.ctre.phoenix.motorcontrol.can.TalonFX;
+
+import edu.wpi.first.networktables.NetworkTableEntry;
 import edu.wpi.first.wpilibj.Joystick;
 import edu.wpi.first.wpilibj.TimedRobot;
+import edu.wpi.first.wpilibj.Timer;
+import edu.wpi.first.wpilibj.shuffleboard.BuiltInWidgets;
+import edu.wpi.first.wpilibj.shuffleboard.Shuffleboard;
+import edu.wpi.first.wpilibj.shuffleboard.ShuffleboardTab;
 import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
-import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 
 /**
  * The VM is configured to automatically run this class, and to call the
@@ -30,42 +34,26 @@ public class Robot extends TimedRobot {
   private static final String kCustomAuto = "My Auto";
   private String m_autoSelected;
   private final SendableChooser<String> m_chooser = new SendableChooser<>();
-  private final TalonFX talon = new TalonFX(1); // TODO: get device number
-  //private final TalonSRX talon = new TalonSRX(7);
-  private final int pidIdx = 0;
-  private final int timeoutMs = 30;
+  private TalonFX falcon;
+  private final TalonSRX talon = new TalonSRX(7);
   private double current_rpm;
   private double target_rpm;
-  private Joystick j = new Joystick(0);
   private double forwardSoftLimitCurrent = 0.75;
+  private Joystick j = new Joystick(0);
   private boolean talonEnabled = true;
+  private final Timer timer = new Timer();
+  private final Timer elapsedTime = new Timer();
 
+  ShuffleboardTab tab = Shuffleboard.getTab("SmartDashboard");
+  
   /**
    * This function is run when the robot is first started up and should be
    * used for any initialization code.
    */
   @Override
-  public void robotInit() {
-    m_chooser.setDefaultOption("Default Auto", kDefaultAuto);
-    m_chooser.addOption("My Auto", kCustomAuto);
-    SmartDashboard.putData("Auto choices", m_chooser);
-    
-    talon.configFactoryDefault();
-    talon.configSelectedFeedbackSensor(FeedbackDevice.IntegratedSensor);
-    //talon.configSelectedFeedbackSensor(FeedbackDevice.CTRE_MagEncoder_Relative);
-
-    talon.setSensorPhase(true);
-
-    talon.configNominalOutputForward(0);
-    talon.configNominalOutputReverse(0);
-    talon.configPeakOutputForward(1);
-    talon.configPeakOutputReverse(-1);
-    talon.configOpenloopRamp(3);
- 
-    talon.config_kP(0,1);
-    talon.config_kI(0, 0);
-    talon.config_kD(0, 0);
-    talon.config_kF(0, 0);
+  public void robotInit() 
+  {
+    falcon = MotorConfig.CreateFalcon(1);
   }
 
   /**
@@ -77,33 +65,73 @@ public class Robot extends TimedRobot {
    * LiveWindow and SmartDashboard integrated updating.
    */
   @Override
-  public void robotPeriodic() {
-    double targetSpeed = target_rpm * 2048 / 600;
-    // 40 percent - current gooes up, stops
-    //double targetSpeed = target_rpm * 4096 / 600;
-    SmartDashboard.putNumber("Current RPM", CalculateRPM());
-    SmartDashboard.putNumber("Target RPM Readout", target_rpm);
-    target_rpm = SmartDashboard.getNumber("Target RPM Input", target_rpm);
-    SmartDashboard.putNumber("Current", talon.getSupplyCurrent());
+  public void robotPeriodic() 
+  {
+    
+  }
 
-    /*if(talon.getSupplyCurrent() < forwardSoftLimitCurrent && talonEnabled)
+  /**
+   * This function is called periodically during operator control.
+   */
+  @Override
+  public void teleopPeriodic() 
+  {
+    FalconRPM();
+    //TalonSoftLimit();
+  }
+
+  public void TalonSoftLimit()
+  {
+    double systemTime = timer.getFPGATimestamp();
+
+
+    //40 percent - current gooes up, stops
+    //check if current is less than 0.75A
+    if(talon.getSupplyCurrent() < forwardSoftLimitCurrent && talonEnabled)
+    {
+      //start elapsed time
+      elapsedTime.start();
+    }
+    if ((talon.getSupplyCurrent() >= forwardSoftLimitCurrent && talonEnabled)) 
+    {
+      // if current exceeds the limit
+      elapsedTime.stop();
+    }
+    if (elapsedTime.get() > 0.5) 
+    {
+      talonEnabled = false;  
+    }
+
+    if(talonEnabled)
     {
       talon.set(ControlMode.PercentOutput, 0.4);
     }
     else
     {
       talon.set(ControlMode.PercentOutput, 0);
-      talonEnabled = false;
-    }*/
+    }
+  }
 
-    //talon.set(ControlMode.Velocity, targetSpeed);
-    talon.set(ControlMode.PercentOutput, j.getY());
+  public void FalconRPM()
+  {
+    // post current RPM to Shuffleboard
+    //tab.add("Current RPM", CalculateRPM()).withWidget(BuiltInWidgets.kTextView).getEntry();
+    System.out.println("Current RPM " + CalculateRPM());
+    System.out.println("Encoder Ticks " + falcon.getSelectedSensorVelocity());
+    //NetworkTableEntry targetRPM = tab.add("Target RPM", 0).withWidget(BuiltInWidgets.kTextView).withProperties(Map.of("min", 0, "max", 6000)).getEntry();
+    
+    // read target RPM from Shuffleboard
+    //target_rpm = targetRPM.getDouble(0.0);
+    // convert target RPM to encoder units
+    //double targetSpeed = target_rpm * 4096 / 600;
+
+    falcon.set(ControlMode.PercentOutput, j.getY());
   }
 
   public double CalculateRPM()
   {
     // get RPM
-    current_rpm = talon.getSelectedSensorVelocity() / 2048 * 600; //pulsesPer100ms/pulsesPerRev => minutes
+    current_rpm = falcon.getSelectedSensorVelocity() / 2048 * 600; //pulsesPer100ms/pulsesPerRev => minutes
     return current_rpm;
   }
 
@@ -142,18 +170,12 @@ public class Robot extends TimedRobot {
     }
   }
 
-  /**
-   * This function is called periodically during operator control.
-   */
-  @Override
-  public void teleopPeriodic() {
-  }
-
+  
   /**
    * This function is called periodically during test mode.
    */
   @Override
   public void testPeriodic() {
-    talon.set(ControlMode.Velocity, 100);
+    falcon.set(ControlMode.Velocity, 100);
   }
 }
